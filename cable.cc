@@ -40,12 +40,12 @@ void Init() {
   gpio_init.GPIO_Mode = GPIO_Mode_AN;
   GPIO_Init(GPIOA, &gpio_init);
 
-  // GPIO: ADC input pin (PC1)
-  RCC_AHBPeriphClockCmd(RCC_AHBPeriph_GPIOC, ENABLE);
+  // GPIO: ADC input pin (PA0 & PA5)
+  RCC_AHBPeriphClockCmd(RCC_AHBPeriph_GPIOA, ENABLE);
   GPIO_StructInit(&gpio_init);
-  gpio_init.GPIO_Pin =  GPIO_Pin_1;
+  gpio_init.GPIO_Pin = GPIO_Pin_0 | GPIO_Pin_5;
   gpio_init.GPIO_Mode = GPIO_Mode_AN;
-  GPIO_Init(GPIOC, &gpio_init);
+  GPIO_Init(GPIOA, &gpio_init);
 
   // Interrupt configuration
   NVIC_InitTypeDef nvicStructure;
@@ -81,9 +81,10 @@ void Init() {
 
   // ADC
   RCC_AHBPeriphClockCmd(RCC_AHBPeriph_ADC12, ENABLE);
+  // RCC_AHBPeriphClockCmd(RCC_AHBPeriph_ADC24, ENABLE);
   RCC_ADCCLKConfig(RCC_ADC12PLLCLK_Div2);
+  // RCC_ADCCLKConfig(RCC_ADC24PLLCLK_Div4);
 
-  ADC_DeInit(ADC1);
   ADC_InitTypeDef adc_init;
   ADC_StructInit(&adc_init);
 
@@ -95,7 +96,9 @@ void Init() {
   adc_common.ADC_TwoSamplingDelay = 0;
   ADC_CommonInit(ADC1, &adc_common);
 
-  adc_init.ADC_ContinuousConvMode = ADC_ContinuousConvMode_Enable;
+  ADC_CommonInit(ADC2, &adc_common);
+
+  adc_init.ADC_ContinuousConvMode = ADC_ContinuousConvMode_Disable;
   adc_init.ADC_Resolution = ADC_Resolution_12b;
   adc_init.ADC_ExternalTrigConvEvent = ADC_ExternalTrigConvEvent_0;
   adc_init.ADC_ExternalTrigEventEdge = ADC_ExternalTrigEventEdge_None;
@@ -105,8 +108,23 @@ void Init() {
   adc_init.ADC_NbrOfRegChannel = 1;
   ADC_Init(ADC1, &adc_init);
 
-  ADC_RegularChannelConfig(ADC1, ADC_Channel_7, 1, ADC_SampleTime_601Cycles5);
+  adc_init.ADC_NbrOfRegChannel = 1;
+  ADC_Init(ADC2, &adc_init);
+
+  ADC_SelectCalibrationMode(ADC1, ADC_CalibrationMode_Single);
+  ADC_StartCalibration(ADC1);
+  while(ADC_GetCalibrationStatus(ADC1) != RESET);
+  // ADC_SelectCalibrationMode(ADC2, ADC_CalibrationMode_Single);
+  // ADC_StartCalibration(ADC2);
+  // while(ADC_GetCalibrationStatus(ADC2) != RESET);
+
+  ADC_RegularChannelConfig(ADC1, ADC_Channel_1, 1, ADC_SampleTime_2Cycles5);
+
+  ADC_RegularChannelConfig(ADC2, ADC_Channel_2, 1, ADC_SampleTime_2Cycles5);
+  // ADC_RegularChannelConfig(ADC2, ADC_Channel_2, 2, ADC_SampleTime_2Cycles5);
+
   ADC_Cmd(ADC1, ENABLE);
+  ADC_Cmd(ADC2, ENABLE);
 }
 
 int main() {
@@ -116,12 +134,8 @@ int main() {
 
   // Main loop
   while(1) {
-
     GPIO_WriteBit(GPIOE, GPIO_Pin_8, static_cast<BitAction>(led_state < 50));
     led_state++;
-
-    ADC_StartConversion(ADC1);
-    while(ADC_GetFlagStatus(ADC1, ADC_FLAG_EOC) == RESET);
   }
 }
 
@@ -131,20 +145,34 @@ extern "C" {
      if (TIM_GetITStatus(TIM2, TIM_IT_Update) != RESET) {
          TIM_ClearITPendingBit(TIM2, TIM_IT_Update);
 
-         uint16_t adc = ADC_GetConversionValue(ADC1);
-         float cv = static_cast<float>(adc) / 65535.0f;
-         // cv += 0.1f;
+         uint16_t input = ADC_GetConversionValue(ADC1);
+         float in = static_cast<float>(input) / 65535.0f;
+         in = (in * 2.0f) - 1.0f;
+
+         float cv = static_cast<float>(ADC_GetConversionValue(ADC2)) / 65535.0f;
+         cv += 0.3f;
 
          float phase_increment = 440.0f * cv * 4.0f / kSampleRate;
 
          phase += phase_increment;
          if (phase > 1.0f) phase--;
 
-         float s = FastSine(phase * 2.0f - 1.0f);
-         s = (s + 1.0f) * 0.5f;
+         float osc = FastSine(phase * 2.0f - 1.0f);
 
-         uint16_t sample = static_cast<uint16_t>(s * 60000) + 2000;
-         DAC_SetChannel1Data(DAC1, DAC_Align_12b_L, sample);
+         // mix input and sine
+         float sample = (in + osc) * 0.5f;
+
+         // clip
+         if (sample < -1.0f) sample = -1.0f;
+         if (sample > 1.0f) sample = 1.0f;
+
+         // scale and write to dac
+         float s = (sample + 1.0f) * 0.5f;
+         DAC_SetChannel1Data(DAC1, DAC_Align_12b_L, static_cast<uint16_t>(s * 65535.0f));
+
+         // start conversion
+         ADC_StartConversion(ADC1);
+         ADC_StartConversion(ADC2);
     }
   }
 }
