@@ -4,7 +4,7 @@
 
 #include <cmath>
 
-const int kSampleRate = 96000;
+const int kSampleRate = 32000;
 
 // x between -1 and +1
 float FasterSine(float x) {
@@ -217,9 +217,9 @@ void Init() {
 
   // ADC
   RCC_AHBPeriphClockCmd(RCC_AHBPeriph_ADC12, ENABLE);
-  // RCC_AHBPeriphClockCmd(RCC_AHBPeriph_ADC24, ENABLE);
+  // RCC_AHBPeriphClockCmd(RCC_AHBPeriph_ADC34, ENABLE);
   RCC_ADCCLKConfig(RCC_ADC12PLLCLK_Div2);
-  // RCC_ADCCLKConfig(RCC_ADC24PLLCLK_Div4);
+  // RCC_ADCCLKConfig(RCC_ADC34PLLCLK_Div2);
 
   ADC_InitTypeDef adc_init;
   ADC_StructInit(&adc_init);
